@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const { PARTITIONS, resolvePartition, loadManifest, findService, fetchServiceDefinition, saveEstimate, loadSavedEstimate } = require('./aws-client');
 const ec2 = require('./ec2');
+const s3 = require('./s3');
 
 const REGIONS = {
   'us-east-1': 'US East (N. Virginia)',
@@ -62,11 +63,17 @@ function configSummary(config) {
 
 function defaultDescription(service, config) {
   if (config.description && String(config.description).trim()) return config.description;
-  if (service.key?.toLowerCase() === 'ec2enhancement') {
+  const key = service.key?.toLowerCase();
+  if (key === 'ec2enhancement') {
     const storage = config.storageAmount && `${typeof config.storageAmount === 'object' ? config.storageAmount.value : config.storageAmount}GB`;
     return ['EC2', config.instanceType, config.quantity ? `${config.quantity} instancia(s)` : null, storage]
       .filter(Boolean)
       .join(' ') || 'Amazon EC2';
+  }
+  if (key === 'amazons3standard') {
+    const storage = config.storageAmount || config.s3StandardStorageSize || config.storage || config.monthlyStorage;
+    const amount = storage && `${typeof storage === 'object' ? storage.value : storage}GB mensuales`;
+    return ['S3 Standard', amount].filter(Boolean).join(' ') || 'S3 Standard';
   }
   return service.name || service.key;
 }
@@ -207,8 +214,14 @@ class EstimateBuilder {
     return service.key.toLowerCase() === 'ec2enhancement';
   }
 
+  _isS3Standard(service) {
+    return service.key.toLowerCase() === 'amazons3standard';
+  }
+
   _payloadKey(service) {
-    return this._isEC2(service) ? 'ec2Enhancement' : service.key;
+    if (this._isEC2(service)) return 'ec2Enhancement';
+    if (this._isS3Standard(service)) return 'amazonS3Standard';
+    return service.key;
   }
 
   _validatePayload(payload) {
@@ -225,6 +238,13 @@ class EstimateBuilder {
         if (!c.instanceType?.value) errors.push('instanceType requerido para EC2');
         if (c.storageType?.value && !c.storageType.value.startsWith('Storage ')) errors.push(`storageType EC2 debe ser ID AWS Calculator, no alias: ${c.storageType.value}`);
         if (errors.length || !v.ok) throw new Error([...errors, ...v.errors].join('; '));
+      }
+      if (svc.serviceCode === 'amazonS3Standard') {
+        const c = svc.calculationComponents || {};
+        const errors = [];
+        if (!c.s3StandardStorageSize?.value) errors.push('storageAmount requerido para S3 Standard');
+        if (!String(c.s3StandardStorageSize?.unit || '').includes('|month')) errors.push('S3 Standard storage debe usar unidad mensual');
+        if (errors.length) throw new Error(errors.join('; '));
       }
     }
   }
@@ -283,7 +303,7 @@ class EstimateBuilder {
       serviceName: service.name,
       regionName: REGIONS[region] || region,
       version,
-      calculationComponents: this._isEC2(service) ? ec2.transformConfig(config) : wrapValues(config),
+      calculationComponents: this._isEC2(service) ? ec2.transformConfig(config) : (this._isS3Standard(service) ? s3.transformConfig(config) : wrapValues(config)),
       configSummary: configSummary(config),
     };
   }

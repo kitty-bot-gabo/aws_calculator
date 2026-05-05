@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node server.js",
     "mcp": "node mcp-server.js",
-    "smoke:export": "node smoke-export.js"
+    "smoke:export": "node smoke-export.js",
+    "smoke:update": "node smoke-update.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.21.0",
