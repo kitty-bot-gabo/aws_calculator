@@ -29,7 +29,9 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "${APP_PORT:-8099}:80"
+      # Publica en todas las interfaces del host para acceso LAN.
+      # Cambia APP_BIND_HOST a 127.0.0.1 solo si quieres dejarlo local.
+      - "${APP_BIND_HOST:-0.0.0.0}:${APP_PORT:-8099}:80"
     depends_on:
       - backend
     restart: unless-stopped
