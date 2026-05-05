@@ -14,6 +14,7 @@ Prioridad: responder directo, pedir datos faltantes si son necesarios, y cuando 
 Servicios soportados de forma confiable al inicio:
 - EC2 usando serviceKey "ec2Enhancement" con config amigable: region, description, instanceType, selectedOS, quantity, pricingStrategy, utilization, tenancy, storageType, storageAmount.
   Valores EC2 válidos: tenancy "shared" (default), "dedicated" o "host"; selectedOS "linux", "windows", "rhel" o "suse"; storageType puede ser alias "gp3", "gp2", "io1", "io2", "st1", "sc1" o "magnetic".
+  Si el usuario no pide un grupo explícito, NO inventes group y NO uses "opcional". Usa description descriptiva, por ejemplo "EC2 t4g.small 100% 30GB".
 - Otros servicios avanzados pueden usarse solo si conoces field IDs exactos de AWS Calculator.
 Regiones por defecto: us-east-1 salvo que el usuario indique otra. Moneda AWS Calculator: USD.
 No inventes cantidades críticas. Si falta tamaño/cantidad, pregunta.
@@ -24,21 +25,40 @@ Devuelve SIEMPRE JSON válido con esta forma:
   "estimateDraft": {
     "name": "nombre estimate",
     "services": [
-      { "serviceKey": "ec2Enhancement", "group": "opcional", "config": { "region":"us-east-1", "description":"Web", "instanceType":"t3.medium", "selectedOS":"linux", "quantity": "2", "tenancy":"shared", "pricingStrategy":"ondemand", "storageType":"gp3", "storageAmount":"100" } }
+      { "serviceKey": "ec2Enhancement", "config": { "region":"us-east-1", "description":"Web EC2 t3.medium 2 instancias 100GB", "instanceType":"t3.medium", "selectedOS":"linux", "quantity": "2", "tenancy":"shared", "pricingStrategy":"ondemand", "storageType":"gp3", "storageAmount":"100" } }
     ]
   }
 }
 Si no hay suficiente información, estimateDraft debe ser null y needsMoreInfo true.`;
 
+function normalizeServiceDescription(serviceKey, config) {
+  if (config.description && String(config.description).trim()) return String(config.description).slice(0, 120);
+  if (serviceKey === 'ec2Enhancement') {
+    const bits = ['EC2', config.instanceType, config.quantity ? `${config.quantity} instancia(s)` : null, config.storageAmount ? `${typeof config.storageAmount === 'object' ? config.storageAmount.value : config.storageAmount}GB` : null]
+      .filter(Boolean);
+    return bits.join(' ').slice(0, 120) || 'Amazon EC2';
+  }
+  return serviceKey;
+}
+
+function normalizeGroup(group) {
+  if (!group) return undefined;
+  const value = String(group).trim();
+  if (!value) return undefined;
+  if (['opcional', 'optional', 'default', 'general'].includes(value.toLowerCase())) return undefined;
+  return value.slice(0, 80);
+}
+
 function normalizeDraft(draft) {
   if (!draft || !Array.isArray(draft.services)) return null;
   return {
     name: String(draft.name || 'AWS Estimate').slice(0, 80),
-    services: draft.services.map((s) => ({
-      serviceKey: String(s.serviceKey || s.service || '').trim(),
-      group: s.group ? String(s.group).slice(0, 80) : undefined,
-      config: s.config && typeof s.config === 'object' ? s.config : {},
-    })).filter(s => s.serviceKey && Object.keys(s.config).length),
+    services: draft.services.map((s) => {
+      const serviceKey = String(s.serviceKey || s.service || '').trim();
+      const config = s.config && typeof s.config === 'object' ? { ...s.config } : {};
+      if (serviceKey) config.description = normalizeServiceDescription(serviceKey, config);
+      return { serviceKey, group: normalizeGroup(s.group), config };
+    }).filter(s => s.serviceKey && Object.keys(s.config).length),
   };
 }
 

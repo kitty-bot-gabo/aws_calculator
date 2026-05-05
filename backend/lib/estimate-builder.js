@@ -60,6 +60,17 @@ function configSummary(config) {
     .join(', ');
 }
 
+function defaultDescription(service, config) {
+  if (config.description && String(config.description).trim()) return config.description;
+  if (service.key?.toLowerCase() === 'ec2enhancement') {
+    const storage = config.storageAmount && `${typeof config.storageAmount === 'object' ? config.storageAmount.value : config.storageAmount}GB`;
+    return ['EC2', config.instanceType, config.quantity ? `${config.quantity} instancia(s)` : null, storage]
+      .filter(Boolean)
+      .join(' ') || 'Amazon EC2';
+  }
+  return service.name || service.key;
+}
+
 class EstimateBuilder {
   constructor(name = 'My Estimate', partition = null) {
     this.id = crypto.randomUUID();
@@ -261,11 +272,13 @@ class EstimateBuilder {
       console.error(`Failed to fetch definition for ${defKey}: ${err.message}`);
     }
 
+    const description = sanitize(defaultDescription(service, config));
+
     return {
       serviceCode,
       region,
       estimateFor,
-      description: sanitize(config.description),
+      description,
       serviceCost: { monthly: 0, upfront: 0 },
       serviceName: service.name,
       regionName: REGIONS[region] || region,

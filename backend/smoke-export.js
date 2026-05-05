@@ -13,7 +13,7 @@ async function main() {
     pricingStrategy: 'ondemand',
     storageType: 'gp2', // intentionally accepted alias; must normalize to AWS Calculator ID
     storageAmount: '30',
-  }, { group: 'opcional' });
+  });
 
   const result = await builder.export();
   const saved = await loadSavedEstimate(result.estimateId);
@@ -21,6 +21,8 @@ async function main() {
   const services = [...Object.values(saved.services || {}), ...groupServices];
   const ec2 = services.find(s => s.serviceCode === 'ec2Enhancement');
   if (!ec2) throw new Error('Smoke failed: saved estimate does not contain EC2');
+  if (!ec2.description || ec2.description === '-') throw new Error('Smoke failed: EC2 description missing');
+  if (Object.keys(saved.groups || {}).length) throw new Error('Smoke failed: estimate has an unexpected default group');
   if (ec2.calculationComponents?.tenancy?.value !== 'shared') throw new Error(`Smoke failed: EC2 tenancy is ${ec2.calculationComponents?.tenancy?.value}`);
   if (ec2.calculationComponents?.storageType?.value !== 'Storage General Purpose GB Mo') throw new Error(`Smoke failed: EC2 storageType is ${ec2.calculationComponents?.storageType?.value}`);
   if (!ec2.calculationComponents?.instanceType?.value) throw new Error('Smoke failed: EC2 instanceType missing');
