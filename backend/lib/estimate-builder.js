@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { PARTITIONS, resolvePartition, loadManifest, findService, fetchServiceDefinition, saveEstimate, loadSavedEstimate } = require('./aws-client');
 const ec2 = require('./ec2');
 const s3 = require('./s3');
+const rds = require('./rds');
 
 const REGIONS = {
   'us-east-1': 'US East (N. Virginia)',
@@ -75,7 +76,35 @@ function defaultDescription(service, config) {
     const amount = storage && `${typeof storage === 'object' ? storage.value : storage}GB mensuales`;
     return ['S3 Standard', amount].filter(Boolean).join(' ') || 'S3 Standard';
   }
+  if (key === 'amazonrdsmysqldb') {
+    const storage = config.storageAmount || config.storage || config.allocatedStorage || config.allocatedStorageGb;
+    return ['RDS MySQL', rds.normalizeInstanceType(config), storage ? `${typeof storage === 'object' ? storage.value : storage}GB` : null]
+      .filter(Boolean)
+      .join(' ');
+  }
   return service.name || service.key;
+}
+
+function resolveService(manifest, compositeKey, config = {}) {
+  const raw = compositeKey.split(':')[0];
+  let svc = findService(manifest, raw);
+  if (svc) return svc;
+  const lower = raw.toLowerCase().replace(/[\s_-]+/g, '');
+  const aliases = {
+    ec2: 'ec2Enhancement', amazonec2: 'ec2Enhancement',
+    s3: 'amazonS3Standard', s3standard: 'amazonS3Standard', amazons3: 'amazonS3Standard',
+    rds: 'amazonRDSMySQLDB', rdsmysql: 'amazonRDSMySQLDB', mysql: 'amazonRDSMySQLDB', amazonrds: 'amazonRDSMySQLDB', amazonrdsmysql: 'amazonRDSMySQLDB',
+    postgres: 'amazonRDSPostgreSQLDB', postgresql: 'amazonRDSPostgreSQLDB', rdspostgres: 'amazonRDSPostgreSQLDB',
+    mariadb: 'amazonRDSMariaDB', rdsmariadb: 'amazonRDSMariaDB',
+  };
+  if (/rds/i.test(raw) && /mysql/i.test(JSON.stringify(config))) return findService(manifest, 'amazonRDSMySQLDB');
+  if (aliases[lower]) return findService(manifest, aliases[lower]);
+  const matches = [];
+  for (const [key, service] of manifest) {
+    const hay = `${key} ${service.name || ''} ${(service.searchKeywords || []).join(' ')}`.toLowerCase();
+    if (hay.includes(raw.toLowerCase())) matches.push(service);
+  }
+  return matches.find(s => s.subType !== 'subServiceSelector' && s.isActive !== 'false') || null;
 }
 
 class EstimateBuilder {
@@ -138,8 +167,8 @@ class EstimateBuilder {
     const buildEntries = async (serviceMap) => {
       const out = {};
       for (const [compositeKey, config] of Object.entries(serviceMap)) {
-        const svc = findService(manifest, compositeKey.split(':')[0]);
-        if (!svc) continue;
+        const svc = resolveService(manifest, compositeKey, config);
+        if (!svc) throw new Error(`Servicio no soportado o no encontrado en AWS Calculator: ${compositeKey}`);
         out[`${this._payloadKey(svc)}-${crypto.randomUUID()}`] =
           await this._buildServiceConfig(manifest, svc, config, partition);
       }
@@ -218,9 +247,14 @@ class EstimateBuilder {
     return service.key.toLowerCase() === 'amazons3standard';
   }
 
+  _isRDSMySQL(service) {
+    return service.key.toLowerCase() === 'amazonrdsmysqldb';
+  }
+
   _payloadKey(service) {
     if (this._isEC2(service)) return 'ec2Enhancement';
     if (this._isS3Standard(service)) return 'amazonS3Standard';
+    if (this._isRDSMySQL(service)) return 'amazonRDSMySQLDB';
     return service.key;
   }
 
@@ -246,6 +280,15 @@ class EstimateBuilder {
         if (!String(c.s3StandardStorageSize?.unit || '').includes('|month')) errors.push('S3 Standard storage debe usar unidad mensual');
         if (errors.length) throw new Error(errors.join('; '));
       }
+      if (svc.serviceCode === 'amazonRDSMySQLDB') {
+        const c = svc.calculationComponents || {};
+        const row = c.columnFormIPM?.value?.[0];
+        const errors = [];
+        if (!row) errors.push('columnFormIPM requerido para RDS MySQL');
+        if (row && !row['Instance Type']) errors.push('instanceType requerido para RDS MySQL');
+        if (!c.storageAmount?.value) errors.push('storageAmount requerido para RDS MySQL');
+        if (errors.length) throw new Error(errors.join('; '));
+      }
     }
   }
 
@@ -261,6 +304,11 @@ class EstimateBuilder {
         if (!['shared', 'dedicated', 'host'].includes(c.tenancy?.value)) errors.push(`EC2 tenancy inválido en estimate guardado: ${c.tenancy?.value}`);
         if (!c.instanceType?.value) errors.push('EC2 sin instanceType en estimate guardado');
         if (c.storageType?.value && !c.storageType.value.startsWith('Storage ')) errors.push(`EC2 storageType no rehidratable: ${c.storageType.value}`);
+      }
+      if (svc.serviceCode === 'amazonRDSMySQLDB') {
+        const c = svc.calculationComponents || {};
+        if (!c.columnFormIPM?.value?.[0]?.['Instance Type']) errors.push('RDS MySQL sin instanceType en estimate guardado');
+        if (!c.storageAmount?.value) errors.push('RDS MySQL sin storageAmount en estimate guardado');
       }
     }
     return { ok: errors.length === 0, serviceCount: services.length, errors };
@@ -303,7 +351,7 @@ class EstimateBuilder {
       serviceName: service.name,
       regionName: REGIONS[region] || region,
       version,
-      calculationComponents: this._isEC2(service) ? ec2.transformConfig(config) : (this._isS3Standard(service) ? s3.transformConfig(config) : wrapValues(config)),
+      calculationComponents: this._isEC2(service) ? ec2.transformConfig(config) : (this._isS3Standard(service) ? s3.transformConfig(config) : (this._isRDSMySQL(service) ? rds.transformConfig(config) : wrapValues(config))),
       configSummary: configSummary(config),
     };
   }

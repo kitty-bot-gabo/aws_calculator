@@ -16,6 +16,8 @@ Servicios soportados de forma confiable al inicio:
   Valores EC2 válidos: tenancy "shared" (default), "dedicated" o "host"; selectedOS "linux", "windows", "rhel" o "suse"; storageType puede ser alias "gp3", "gp2", "io1", "io2", "st1", "sc1" o "magnetic".
   Si el usuario no pide un grupo explícito, NO inventes group y NO uses "opcional". Usa description descriptiva, por ejemplo "EC2 t4g.small 100% 30GB".
 - S3 Standard usando serviceKey "amazonS3Standard" con config amigable: region, description, storageAmount o s3StandardStorageSize en GB mensuales, putRequests, getRequests.
+- RDS MySQL usando serviceKey "amazonRDSMySQLDB" con config amigable: region, description, cpu/vcpu, memory/ram, instanceType si se conoce, storageAmount, multiAz boolean/string, quantity. Para 2 CPU y 8GB usa instanceType db.t3.large si el usuario no da tipo exacto.
+- Para otros servicios soportados por AWS Calculator, usa el serviceKey exacto de AWS Calculator y field IDs exactos del servicio. Si no conoces esos field IDs exactos, pide más datos o indica que ese servicio requiere mapeo.
 - Si el usuario pide actualizar/editar una calculadora existente y hay un link calculator.aws/#/estimate?id=... en el mensaje o historial, devuelve SOLO los servicios nuevos a agregar en estimateDraft; el backend hará merge con la calculadora existente.
 - Otros servicios avanzados pueden usarse solo si conoces field IDs exactos de AWS Calculator.
 Regiones por defecto: us-east-1 salvo que el usuario indique otra. Moneda AWS Calculator: USD.
@@ -28,7 +30,8 @@ Devuelve SIEMPRE JSON válido con esta forma:
     "name": "nombre estimate",
     "services": [
       { "serviceKey": "ec2Enhancement", "config": { "region":"us-east-1", "description":"Web EC2 t3.medium 2 instancias 100GB", "instanceType":"t3.medium", "selectedOS":"linux", "quantity": "2", "tenancy":"shared", "pricingStrategy":"ondemand", "storageType":"gp3", "storageAmount":"100" } },
-      { "serviceKey": "amazonS3Standard", "config": { "region":"us-east-1", "description":"S3 Standard 200GB mensuales", "storageAmount":"200" } }
+      { "serviceKey": "amazonS3Standard", "config": { "region":"us-east-1", "description":"S3 Standard 200GB mensuales", "storageAmount":"200" } },
+      { "serviceKey": "amazonRDSMySQLDB", "config": { "region":"us-east-1", "description":"RDS MySQL db.t3.large 30GB Single-AZ", "cpu":"2", "memory":"8", "storageAmount":"30", "multiAz": false, "quantity":"1" } }
     ]
   }
 }
@@ -39,6 +42,7 @@ function normalizeServiceKey(serviceKey) {
   const lower = key.toLowerCase().replace(/[\s_-]+/g, '');
   if (['s3', 's3standard', 'amazons3', 'amazons3standard'].includes(lower)) return 'amazonS3Standard';
   if (['ec2', 'amazonec2', 'ec2enhancement'].includes(lower)) return 'ec2Enhancement';
+  if (['rds', 'rdsmysql', 'mysql', 'amazonrds', 'amazonrdsmysql', 'amazonrdsmysqldb'].includes(lower)) return 'amazonRDSMySQLDB';
   return key;
 }
 
@@ -52,6 +56,10 @@ function normalizeServiceDescription(serviceKey, config) {
   if (serviceKey === 'amazonS3Standard') {
     const amount = config.storageAmount || config.s3StandardStorageSize || config.storage || config.monthlyStorage;
     return `S3 Standard${amount ? ` ${typeof amount === 'object' ? amount.value : amount}GB mensuales` : ''}`.slice(0, 120);
+  }
+  if (serviceKey === 'amazonRDSMySQLDB') {
+    const amount = config.storageAmount || config.storage || config.allocatedStorage || config.allocatedStorageGb;
+    return `RDS MySQL${amount ? ` ${typeof amount === 'object' ? amount.value : amount}GB` : ''}`.slice(0, 120);
   }
   return serviceKey;
 }
