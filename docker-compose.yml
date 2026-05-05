@@ -1,0 +1,35 @@
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      LLM_ALLOW_EXTERNAL: ${LLM_ALLOW_EXTERNAL:-false}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-120}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434}
+      LLM_MODEL: ${LLM_MODEL:-llama3.1:8b}
+      OLLAMA_MODELS: ${OLLAMA_MODELS:-llama3.1:8b,qwen3.5:9b}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      OPENAI_MODELS: ${OPENAI_MODELS:-gpt-4.1-mini,gpt-4.1,gpt-4o-mini}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
+      DEEPSEEK_MODELS: ${DEEPSEEK_MODELS:-deepseek-v4-flash,deepseek-v4-pro,deepseek-chat,deepseek-reasoner}
+      AWS_MANIFEST_URL: ${AWS_MANIFEST_URL:-}
+      AWS_SAVE_URL: ${AWS_SAVE_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+  frontend:
+    build: ./frontend
+    ports:
+      - "${APP_PORT:-8099}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
