@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: MIT-0
 const crypto = require('crypto');
-const { PARTITIONS, resolvePartition, loadManifest, findService, fetchServiceDefinition, saveEstimate } = require('./aws-client');
+const { PARTITIONS, resolvePartition, loadManifest, findService, fetchServiceDefinition, saveEstimate, loadSavedEstimate } = require('./aws-client');
 const ec2 = require('./ec2');
 
 const REGIONS = {
@@ -169,11 +169,18 @@ class EstimateBuilder {
 
   async export() {
     const payload = await this.toAWSPayload();
+    this._validatePayload(payload);
     const result = await saveEstimate(payload);
+    const savedEstimate = await loadSavedEstimate(result.estimateId);
+    const validation = this._validateSavedEstimate(savedEstimate);
+    if (!validation.ok) {
+      throw new Error(`AWS guardó el estimate, pero no es rehidratable: ${validation.errors.join('; ')}`);
+    }
     const partition = this._resolvePartition();
     return {
       estimateId: result.estimateId,
       shareableUrl: this._buildShareUrl(result.estimateId, partition),
+      validation,
     };
   }
 
@@ -191,6 +198,51 @@ class EstimateBuilder {
 
   _payloadKey(service) {
     return this._isEC2(service) ? 'ec2Enhancement' : service.key;
+  }
+
+  _validatePayload(payload) {
+    const services = this._flattenServices(payload);
+    if (!services.length) throw new Error('Payload AWS sin servicios');
+    for (const svc of services) {
+      if (svc.serviceCode === 'ec2Enhancement') {
+        const v = ec2.validateConfig(svc.calculationComponents ? Object.fromEntries(
+          Object.entries(svc.calculationComponents).map(([k, val]) => [k, val?.value ?? val])
+        ) : {});
+        const c = svc.calculationComponents || {};
+        const errors = [];
+        if (!['shared', 'dedicated', 'host'].includes(c.tenancy?.value)) errors.push(`tenancy EC2 inválido: ${c.tenancy?.value}`);
+        if (!c.instanceType?.value) errors.push('instanceType requerido para EC2');
+        if (c.storageType?.value && !c.storageType.value.startsWith('Storage ')) errors.push(`storageType EC2 debe ser ID AWS Calculator, no alias: ${c.storageType.value}`);
+        if (errors.length || !v.ok) throw new Error([...errors, ...v.errors].join('; '));
+      }
+    }
+  }
+
+  _validateSavedEstimate(savedEstimate) {
+    const services = this._flattenServices(savedEstimate);
+    const errors = [];
+    if (!services.length) errors.push('AWS load devolvió estimate sin servicios');
+    for (const svc of services) {
+      if (!svc.serviceCode) errors.push('Servicio sin serviceCode');
+      if (!svc.calculationComponents || !Object.keys(svc.calculationComponents).length) errors.push(`${svc.serviceCode || 'servicio'} sin calculationComponents`);
+      if (svc.serviceCode === 'ec2Enhancement') {
+        const c = svc.calculationComponents || {};
+        if (!['shared', 'dedicated', 'host'].includes(c.tenancy?.value)) errors.push(`EC2 tenancy inválido en estimate guardado: ${c.tenancy?.value}`);
+        if (!c.instanceType?.value) errors.push('EC2 sin instanceType en estimate guardado');
+        if (c.storageType?.value && !c.storageType.value.startsWith('Storage ')) errors.push(`EC2 storageType no rehidratable: ${c.storageType.value}`);
+      }
+    }
+    return { ok: errors.length === 0, serviceCount: services.length, errors };
+  }
+
+  _flattenServices(group) {
+    const services = [];
+    const walk = (node) => {
+      Object.values(node?.services || {}).forEach(svc => services.push(svc));
+      Object.values(node?.groups || {}).forEach(walk);
+    };
+    walk(group);
+    return services;
   }
 
   async _buildServiceConfig(manifest, service, config, partition) {

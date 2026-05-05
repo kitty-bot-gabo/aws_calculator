@@ -164,7 +164,7 @@ Amazon EC2 (ec2Enhancement) has special config fields handled automatically:
 - "selectedOS": operating system. Default: "linux". Options: "linux", "windows", "rhel", "suse", etc.
 - "tenancy": "shared" (default), "dedicated", or "host"
 - "pricingStrategy": see above
-- "storageType": EBS volume type (e.g. "Storage General Purpose gp3 GB Mo")
+- "storageType": EBS volume type. Aliases accepted: "gp3", "gp2", "io1", "io2", "st1", "sc1", "magnetic". Full AWS Calculator IDs also work (e.g. "Storage General Purpose gp3 GB Mo").
 - "storageAmount": EBS storage, e.g. {"value": "30", "unit": "gb|NA"}
 - "snapshotFrequency": snapshot frequency, e.g. "0" for none
 Do NOT use get_service_fields for Amazon EC2 — these fields are handled by a custom transform.

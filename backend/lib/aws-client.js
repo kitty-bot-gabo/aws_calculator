@@ -1,6 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: MIT-0
 const SAVE_URL = process.env.AWS_SAVE_URL || 'https://dnd5zrqcec4or.cloudfront.net/Prod/v2/saveAs';
+const LOAD_URL_TEMPLATE = process.env.AWS_LOAD_URL_TEMPLATE || 'https://d3knqfixx3sbls.cloudfront.net/{estimateKey}';
 const CDN_BASE = 'https://d1qsjq9pzbk1k6.cloudfront.net';
 
 const PARTITIONS = {
@@ -161,6 +162,16 @@ async function saveEstimate(payload) {
   };
 }
 
+async function loadSavedEstimate(estimateId) {
+  if (!estimateId) throw new Error('estimateId requerido');
+  const url = LOAD_URL_TEMPLATE.replace('{estimateKey}', encodeURIComponent(estimateId));
+  const res = await fetch(url, { headers: { accept: 'application/json' } });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`AWS saved estimate load returned HTTP ${res.status}: ${text.substring(0, 200)}`);
+  try { return JSON.parse(text); }
+  catch { throw new Error('AWS saved estimate load returned invalid JSON'); }
+}
+
 const INPUT_TYPES = new Set([
   'input', 'numericInput', 'frequency', 'fileSize', 'durationInput', 'percentInput',
 ]);
@@ -221,4 +232,4 @@ function extractInputFields(definition) {
   return fields;
 }
 
-module.exports = { PARTITIONS, resolvePartition, loadManifest, findService, searchServices, fetchServiceDefinition, saveEstimate, extractInputFields, parseDoubleEncodedResponse };
+module.exports = { PARTITIONS, resolvePartition, loadManifest, findService, searchServices, fetchServiceDefinition, saveEstimate, loadSavedEstimate, extractInputFields, parseDoubleEncodedResponse };
